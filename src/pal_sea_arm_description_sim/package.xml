@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <!-- Same name as the upstream package on purpose: this is a simulation overlay. -->
+  <name>pal_sea_arm_description</name>
+  <version>2.8.1</version>
+  <description>Simulation overlay of PAL's pal_sea_arm_description that adds Gazebo RGB sensors to the wrist cameras.</description>
+  <maintainer email="ningze1005@gmail.com">n7sun</maintainer>
+  <license>Apache License 2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>gazebo_plugins</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

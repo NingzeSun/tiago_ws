@@ -1,0 +1,29 @@
+# tiago-dc:dev = PAL TIAGo Pro 30 development image + data-collection extras.
+# Build the base first with uwaterloo-air/uwaterloo-air-build-docker.sh (no --create).
+FROM development-tiago-pro-30:alum-edge
+
+USER root
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ros-humble-foxglove-bridge \
+        python3-aiohttp \
+        python3-h5py \
+        python3-yaml \
+        xvfb \
+        mesa-utils \
+        libegl1 \
+        tmux \
+        curl \
+        adb \
+    && rm -rf /var/lib/apt/lists/*
+
+# VirtualGL lets Gazebo Classic (GLX only) render its camera sensors on the NVIDIA GPU through
+# EGL, so the headless server needs no real X server; Xvfb only provides the display handle.
+ARG VGL_VERSION=3.1.5
+RUN curl -fsSL -o /tmp/vgl.deb \
+        "https://github.com/VirtualGL/virtualgl/releases/download/${VGL_VERSION}/virtualgl_${VGL_VERSION}_amd64.deb" \
+    && DEBIAN_FRONTEND=noninteractive apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends /tmp/vgl.deb \
+    && rm -rf /tmp/vgl.deb /var/lib/apt/lists/*
+
+# The PAL entrypoint remaps `user` to LOCAL_USER_ID; every shell sources the workspace env.
+RUN echo 'source /home/user/tiago_ws/docker/env_sim.sh' >> /home/user/.bashrc

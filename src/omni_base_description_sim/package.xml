@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <!-- Same name as the upstream package on purpose: this is a simulation overlay. -->
+  <name>omni_base_description</name>
+  <version>2.17.0</version>
+  <description>Simulation overlay of PAL's omni_base_description that welds the base to the Gazebo world.</description>
+  <maintainer email="ningze1005@gmail.com">n7sun</maintainer>
+  <license>Apache License 2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>gazebo_planar_move_plugin</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

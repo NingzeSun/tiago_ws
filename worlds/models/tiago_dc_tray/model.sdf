@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <model name="tiago_dc_tray">
+    <link name="link">
+      <inertial>
+        <mass>0.3</mass>
+        <inertia>
+          <ixx>0.0012</ixx><iyy>0.0020</iyy><izz>0.0032</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <collision name="base">
+        <geometry><box><size>0.26 0.20 0.01</size></box></geometry>
+        <surface><friction><ode><mu>0.8</mu><mu2>0.8</mu2></ode></friction></surface>
+      </collision>
+      <visual name="base">
+        <geometry><box><size>0.26 0.20 0.01</size></box></geometry>
+        <material><ambient>0.15 0.25 0.6 1</ambient><diffuse>0.15 0.25 0.6 1</diffuse></material>
+      </visual>
+      <collision name="rim_front">
+        <pose>0.125 0 0.015 0 0 0</pose>
+        <geometry><box><size>0.01 0.20 0.02</size></box></geometry>
+      </collision>
+      <visual name="rim_front">
+        <pose>0.125 0 0.015 0 0 0</pose>
+        <geometry><box><size>0.01 0.20 0.02</size></box></geometry>
+        <material><ambient>0.1 0.15 0.4 1</ambient><diffuse>0.1 0.15 0.4 1</diffuse></material>
+      </visual>
+      <collision name="rim_back">
+        <pose>-0.125 0 0.015 0 0 0</pose>
+        <geometry><box><size>0.01 0.20 0.02</size></box></geometry>
+      </collision>
+      <visual name="rim_back">
+        <pose>-0.125 0 0.015 0 0 0</pose>
+        <geometry><box><size>0.01 0.20 0.02</size></box></geometry>
+        <material><ambient>0.1 0.15 0.4 1</ambient><diffuse>0.1 0.15 0.4 1</diffuse></material>
+      </visual>
+    </link>
+  </model>
+</sdf>

@@ -1,0 +1,88 @@
+{
+  "configById": {
+    "3D!robot": {
+      "cameraState": {
+        "distance": 2.6,
+        "perspective": true,
+        "phi": 55,
+        "thetaOffset": 200,
+        "targetOffset": [0.4, 0, 0.8],
+        "target": [0, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
+        "fovy": 45,
+        "near": 0.05,
+        "far": 100
+      },
+      "followMode": "follow-pose",
+      "followTf": "base_footprint",
+      "scene": {"enableStats": false},
+      "transforms": {"showLabel": false, "axisScale": 0.4},
+      "topics": {
+        "/head_front_camera/depth/color/points": {"visible": false}
+      },
+      "layers": {
+        "grid": {"layerId": "foxglove.Grid", "visible": true, "frameId": "base_footprint", "size": 4, "divisions": 8},
+        "urdf": {"layerId": "foxglove.Urdf", "visible": true, "sourceType": "topic", "topic": "/robot_description"}
+      },
+      "publish": {"type": "point"}
+    },
+    "Image!head": {
+      "imageMode": {"imageTopic": "/head_front_camera/color/image_raw/compressed"},
+      "cameraState": {"distance": 20, "perspective": true, "phi": 60, "target": [0, 0, 0],
+                      "targetOffset": [0, 0, 0], "targetOrientation": [0, 0, 0, 1], "thetaOffset": 45,
+                      "fovy": 45, "near": 0.5, "far": 5000}
+    },
+    "Image!left": {
+      "imageMode": {"imageTopic": "/gripper_left_camera/color/image_raw/compressed"}
+    },
+    "Image!right": {
+      "imageMode": {"imageTopic": "/gripper_right_camera/color/image_raw/compressed"}
+    },
+    "Plot!grippers": {
+      "title": "TCP command z (m) and grippers (1 = open)",
+      "paths": [
+        {"value": "/teleop/left/tcp_command.pose.position.z", "enabled": true, "timestampMethod": "receiveTime", "label": "left TCP z"},
+        {"value": "/teleop/right/tcp_command.pose.position.z", "enabled": true, "timestampMethod": "receiveTime", "label": "right TCP z"},
+        {"value": "/teleop/command.position[14]", "enabled": true, "timestampMethod": "receiveTime", "label": "left gripper cmd"},
+        {"value": "/teleop/command.position[15]", "enabled": true, "timestampMethod": "receiveTime", "label": "right gripper cmd"}
+      ],
+      "followingViewWidth": 20,
+      "showLegend": true,
+      "isSynced": true
+    },
+    "RawMessages!status": {
+      "topicPath": "/recorder/status.data",
+      "diffEnabled": false,
+      "expansion": "all"
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": {"speed": 1},
+  "layout": {
+    "direction": "column",
+    "first": {
+      "direction": "row",
+      "first": "3D!robot",
+      "second": "Image!head",
+      "splitPercentage": 45
+    },
+    "second": {
+      "direction": "row",
+      "first": "Image!left",
+      "second": {
+        "direction": "row",
+        "first": "Image!right",
+        "second": {
+          "direction": "column",
+          "first": "Plot!grippers",
+          "second": "RawMessages!status",
+          "splitPercentage": 60
+        },
+        "splitPercentage": 50
+      },
+      "splitPercentage": 33
+    },
+    "splitPercentage": 55
+  }
+}

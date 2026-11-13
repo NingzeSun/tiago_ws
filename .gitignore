@@ -1,0 +1,16 @@
+# PAL credentials (uwaterloo-air/ sits in this workspace but must never be committed).
+keys/
+*.deb
+*build-docker.sh
+uwaterloo-air/
+
+# Recorded episodes, snapshots, Quest token.
+data/
+
+# colcon
+build/
+install/
+log/
+
+__pycache__/
+*.pyc

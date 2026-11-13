@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TIAGo Quest Teleop</title>
+  <style>
+    body { margin: 0; background: #111923; color: #eef3f7; font: 16px/1.5 system-ui, sans-serif; }
+    main { max-width: 980px; margin: auto; padding: 16px; }
+    h1 { font-size: 1.3rem; margin: 0 0 8px; }
+    button { background: #277cc0; border: 0; border-radius: 7px; color: white; font: inherit;
+      padding: 10px 15px; margin: 5px 5px 5px 0; }
+    button.warn { background: #a04545; }
+    button:disabled { opacity: .45; }
+    #preview { display: block; width: 100%; max-width: 960px; aspect-ratio: 4 / 3; object-fit: contain;
+      background: #05090e; border: 1px solid #526372; }
+    #status { white-space: pre-wrap; background: #23313f; padding: 10px; border-radius: 6px; min-height: 3em; }
+    table { border-collapse: collapse; margin-top: 10px; }
+    td { padding: 2px 12px 2px 0; color: #bbccda; vertical-align: top; }
+  </style>
+</head>
+<body><main>
+  <h1>TIAGo Pro · Quest teleop (Gazebo / robot)</h1>
+  <p id="status">connecting…</p>
+  <div>
+    <button id="enter-ar" disabled>Enter passthrough</button>
+    <button id="enter-vr" disabled>Enter VR</button>
+    <button id="start">Start recording</button>
+    <button id="save">Save episode</button>
+    <button id="discard" class="warn">Discard episode</button>
+    <button id="ready">Ready pose</button>
+    <button id="reset_scene">Reset objects (sim)</button>
+  </div>
+  <img id="preview" alt="head camera (top), left and right wrist cameras (bottom)">
+  <table>
+    <tr><td>Grip (hold)</td><td>deadman + clutch for that arm; release, re-position your hand, grip again</td></tr>
+    <tr><td>Trigger</td><td>close that gripper (released = open)</td></tr>
+    <tr><td>Right A / B</td><td>start recording / save episode</td></tr>
+    <tr><td>Left X / Y</td><td>discard episode / move arms to the ready pose</td></tr>
+    <tr><td>Right stick click</td><td>re-randomize the objects (Gazebo only)</td></tr>
+  </table>
+</main><script src="/client.js"></script></body>
+</html>
