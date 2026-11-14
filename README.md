@@ -1,7 +1,7 @@
 # TIAGo Pro teleop data collection (ROS 2 Humble · Gazebo · Meta Quest)
 
 The Quest Browser streams both controllers to a ROS 2 bridge. Teleop drives the TIAGo Pro arms
-and grippers, and a recorder writes episodes in the RoboTwin HDF5 layout that Bi-SKAD reads.
+and grippers, and a recorder writes episodes in the RoboTwin HDF5 layout that DeSKAD reads.
 Sim and robot differ only in `config/sim.yaml` vs `config/real.yaml`. Design, status and the
 other scripts are in `PLAN.md` and `docs/`.
 
@@ -114,6 +114,17 @@ cd ~/tiago_robot_day/tiago_ws && docker/exec_ros.sh
 ```bash
 ros2 run cyclone_dev_cfg pal_connect.sh <interface> 10.68.0.1
 ```
+
+**No wrist cameras mounted:** in the shell `pal_connect.sh` opens, select the head-only config
+before anything else. Otherwise the recorder drops every step for the missing wrist images:
+
+```bash
+export TIAGO_DC_CONFIG=$TIAGO_WS/config/real_headonly.yaml
+```
+
+Then read `config/real_headonly.yaml` wherever this section says `config/real.yaml`. Its episodes
+go to `.../tiago_real_teleop_headonly/` and are pipeline tests only: `check_episode.py` fails on
+them (KeyError on `left_camera`) because DeSKAD needs all three cameras.
 
 `ros2 topic list` should show the robot's topics. Check the interface without moving:
 
