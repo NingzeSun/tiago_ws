@@ -1,11 +1,11 @@
-"""Write one teleop episode in the RoboTwin 2.0 HDF5 layout that Bi-SKAD reads.
+"""Write one teleop episode in the RoboTwin 2.0 HDF5 layout that CoDex reads.
 
 Layout under <data_root>/<task_name>/<collection>/:
     data/episode{N}.hdf5          RoboTwin keys + TIAGo extras (see below)
     instructions/episode{N}.json  {"seen": [instruction], "unseen": [instruction]}
     meta/episode{N}.json          robot, rates, config hash, timing, drop counts
 
-RoboTwin keys (exactly what Bi-SKAD's prepare_dataset / build_affordance_labels read):
+RoboTwin keys (exactly what CoDex's prepare_dataset / build_affordance_labels read):
     observation/<cam>/rgb           JPEG bytes, fixed-length S dtype, null-padded
     observation/<cam>/intrinsic_cv  (T, 3, 3)
     observation/<cam>/extrinsic_cv  (T, 3, 4) world -> OpenCV optical frame
@@ -15,15 +15,26 @@ RoboTwin keys (exactly what Bi-SKAD's prepare_dataset / build_affordance_labels 
     joint_action/vector             (T, 16) [left_arm, left_gripper, right_arm, right_gripper]
     endpose/{left_endpose, right_endpose} (T, 7) measured TCP [xyz, qw qx qy qz] in world
     endpose/{left_gripper, right_gripper} (T,) commanded normalized gripper
-TIAGo extras (ignored by Bi-SKAD):
+TIAGo extras (ignored by CoDex):
     action/joint_command            (T, 16) commanded arm joints + normalized grippers
     action/{left,right}_tcp_command (T, 7) commanded TCP [xyz, qw qx qy qz]
     state/joint_position, state/joint_velocity (T, J) full /joint_states, names in attrs
     state/gripper_measured          (T, 2) finger joint mapped to normalized gripper
     timestamp/sim_s, timestamp/wall_s (T,)
+Operator (ignored by CoDex; quest_local_floor frame, WebXR axes, poses [xyz, qw qx qy qz]; NaN
+where the matching *_valid flag is false):
+    operator/head_pose, operator/{left,right}_controller_pose (T, 7)
+    operator/{left,right}_eye_pose  (T, 7) gaze origin; the gaze points along the pose's -z
+    operator/eye_confidence         (T, 2)
+    operator/gaze_camera            (T,) index into attrs gaze_cameras, -1 = off the camera tiles
+    operator/gaze_pixel             (T, 2) (u, v) px in that camera's image
+    operator/face_weights           (T, F) Meta face expressions, names in attrs face_names
+    operator/{head,eye,face}_valid (T,), operator/controller_valid (T, 2)
+    operator/headset_s              (T,) headset clock
+Root attrs: instruction, success (operator label), meta (JSON).
 
 JPEG convention: RoboTwin's collector `cv2.imencode`s the true-RGB array without RGB2BGR, so
-the stored JPEG is channel-reversed and `cv2.imdecode` returns true RGB (Bi-SKAD's
+the stored JPEG is channel-reversed and `cv2.imdecode` returns true RGB (CoDex's
 `raw_io.encoded_rgb_to_array`). This writer follows the same convention on purpose.
 """
 
@@ -63,6 +74,7 @@ class EpisodeBuffer:
     def __init__(self, cameras: list[str], joint_names: list[str]):
         self.cameras = cameras
         self.joint_names = joint_names
+        self.operator = {"client": "", "face_names": []}
         self.steps: list[dict] = []
 
     def __len__(self):
@@ -73,6 +85,9 @@ class EpisodeBuffer:
 
     def stacked(self, key: str) -> np.ndarray:
         return np.stack([np.asarray(step[key]) for step in self.steps])
+
+    def operator_stacked(self, key: str) -> np.ndarray:
+        return np.stack([np.asarray(step["operator"][key]) for step in self.steps])
 
 
 def next_episode_index(root: Path) -> int:
@@ -85,7 +100,7 @@ def write_episode(root: Path, buffer: EpisodeBuffer, instruction: str, meta: dic
     """Write data/instructions/meta for the next free episode index; returns the HDF5 path.
 
     The HDF5 is written to a temporary name and renamed, so a crash never leaves a truncated
-    episode{N}.hdf5 that Bi-SKAD would pick up.
+    episode{N}.hdf5 that CoDex would pick up.
     """
     if len(buffer) == 0:
         raise ValueError("empty episode")
@@ -134,7 +149,25 @@ def write_episode(root: Path, buffer: EpisodeBuffer, instruction: str, meta: dic
         stamps = f.create_group("timestamp")
         stamps.create_dataset("sim_s", data=buffer.stacked("sim_s"))
         stamps.create_dataset("wall_s", data=buffer.stacked("wall_s"))
+
+        operator = f.create_group("operator")
+        operator.attrs["frame"] = "quest_local_floor: headset floor frame, x right, y up, z toward the operator"
+        operator.attrs["client"] = buffer.operator["client"]
+        operator.attrs["face_names"] = json.dumps(buffer.operator["face_names"])
+        operator.attrs["gaze_cameras"] = json.dumps(buffer.cameras)
+        for key in ("head_pose", "left_controller_pose", "right_controller_pose", "left_eye_pose", "right_eye_pose",
+                    "eye_confidence", "gaze_pixel", "headset_s", "head_valid", "controller_valid", "eye_valid",
+                    "face_valid"):
+            operator.create_dataset(key, data=buffer.operator_stacked(key))
+        operator.create_dataset("gaze_camera", data=buffer.operator_stacked("gaze_camera").astype(np.int8))
+        faces = [step["operator"]["face_weights"] for step in buffer.steps]
+        face_weights = np.full((len(faces), len(buffer.operator["face_names"])), np.nan, dtype=np.float32)
+        for i, weights in enumerate(faces):
+            if weights is not None and len(weights) == face_weights.shape[1]:
+                face_weights[i] = weights
+        operator.create_dataset("face_weights", data=face_weights)
         f.attrs["instruction"] = instruction
+        f.attrs["success"] = bool(meta["success"])
         f.attrs["meta"] = json.dumps(meta)
     os.replace(tmp, path)
 

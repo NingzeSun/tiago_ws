@@ -1,9 +1,12 @@
 """Fixed-rate episode recorder (RoboTwin HDF5 layout, see episode_writer.py).
 
 Keeps the newest message of every stream and samples them on a timer. A step is dropped, with a
-warning, when any stream's newest message is older than recorder.max_staleness_s, so every
-saved step is a consistent snapshot. Episodes are controlled by /teleop/event:
-start | save | discard.
+warning, when any robot stream's newest message is older than recorder.max_staleness_s, so every
+saved step is a consistent snapshot. Operator streams (Quest controllers, head, eyes, face) never
+drop a step: a missing or stale one is stored as NaN with a false *_valid flag.
+
+Episodes are controlled by /teleop/event: start -> recording, stop -> waiting for a label,
+success | failure -> saved (failures to the sibling <collection>_failed), discard -> dropped.
 """
 
 from __future__ import annotations
@@ -25,9 +28,11 @@ from sensor_msgs.msg import CameraInfo, Image, JointState
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
 
-from .common import (COMMAND_TOPIC, EVENT_TOPIC, RECORDER_STATUS_TOPIC, SIDES, config_path,
-                     gripper_command_name, image_to_rgb, load_config, matrix_to_xyz_wxyz,
-                     pose_to_matrix, tcp_command_topic, transform_to_matrix)
+from tiago_dc_msgs.msg import OperatorState
+
+from .common import (COMMAND_TOPIC, EVENT_TOPIC, OPERATOR_TOPIC, RECORDER_STATUS_TOPIC, SIDES, config_path,
+                     gripper_command_name, image_to_rgb, load_config, matrix_to_xyz_wxyz, pose_to_matrix,
+                     pose_to_xyz_wxyz, quest_pose_topic, tcp_command_topic, transform_to_matrix)
 from .episode_writer import EpisodeBuffer, camera_matrices, encode_rgb, next_episode_index, write_episode
 
 
@@ -44,6 +49,7 @@ class RecorderNode(Node):
         self.rec = rec
         self.world_frame = self.cfg["robot"]["world_frame"]
         self.root = Path(rec["data_root"]) / rec["task_name"] / rec["collection"]
+        self.failed_root = self.root.with_name(rec["collection"] + "_failed")
         self.cameras = list(self.cfg["cameras"])
         self.arm_joints = {s: self.cfg["arms"][s]["joints"] for s in SIDES}
         self.tf_buffer = Buffer(cache_time=Duration(seconds=10.0))
@@ -54,6 +60,8 @@ class RecorderNode(Node):
         self.joint_state: JointState | None = None
         self.command: JointState | None = None
         self.tcp_commands: dict[str, PoseStamped] = {}
+        self.quest_poses: dict[str, PoseStamped] = {}
+        self.operator: OperatorState | None = None
         for cam, spec in self.cfg["cameras"].items():
             self.create_subscription(Image, spec["image_topic"],
                                      lambda m, c=cam: self.images.__setitem__(c, m), qos_profile_sensor_data)
@@ -65,10 +73,14 @@ class RecorderNode(Node):
         for side in SIDES:
             self.create_subscription(PoseStamped, tcp_command_topic(side),
                                      lambda m, s=side: self.tcp_commands.__setitem__(s, m), 10)
+            self.create_subscription(PoseStamped, quest_pose_topic(side),
+                                     lambda m, s=side: self.quest_poses.__setitem__(s, m), 10)
+        self.create_subscription(OperatorState, OPERATOR_TOPIC, lambda m: setattr(self, "operator", m), 10)
         self.create_subscription(String, EVENT_TOPIC, self.on_event, 10)
         self.status_pub = self.create_publisher(String, RECORDER_STATUS_TOPIC, 10)
 
-        self.buffer: EpisodeBuffer | None = None
+        self.buffer: EpisodeBuffer | None = None    # recording
+        self.pending: EpisodeBuffer | None = None   # stopped, waiting for success / failure
         self.joint_names: list[str] | None = None
         self.dropped = 0
         self.drop_reasons: dict[str, int] = {}
@@ -84,7 +96,7 @@ class RecorderNode(Node):
 
     # ---------------------------------------------------------------- episode control
     def on_event(self, msg: String):
-        if msg.data == "start" and self.buffer is None:
+        if msg.data == "start" and self.buffer is None and self.pending is None:
             if self.joint_state is None:
                 self.last_error = "no /joint_states yet"
                 return
@@ -93,29 +105,40 @@ class RecorderNode(Node):
             self.dropped, self.drop_reasons, self.last_error = 0, {}, ""
             self.started_wall = time.time()
             self.get_logger().info("recording started")
-        elif msg.data == "save" and self.buffer is not None:
+        elif msg.data == "stop" and self.buffer is not None:
             buffer, self.buffer = self.buffer, None
             if len(buffer) < 2:
                 self.last_error = f"episode too short ({len(buffer)} steps), not saved"
                 self.get_logger().warn(self.last_error)
-                return
-            meta = self.episode_meta(buffer)
+            else:
+                self.pending = buffer
+                self.get_logger().info(f"stopped at {len(buffer)} steps; waiting for success / failure")
+        elif msg.data in ("success", "failure") and self.pending is not None:
+            buffer, self.pending = self.pending, None
+            success = msg.data == "success"
+            meta = self.episode_meta(buffer, success)
             with self.lock:
                 self.saving += 1
-            threading.Thread(target=self.save, args=(buffer, meta), daemon=True).start()
-        elif msg.data == "discard" and self.buffer is not None:
-            self.get_logger().info(f"discarded episode with {len(self.buffer)} steps")
-            self.buffer = None
+            root = self.root if success else self.failed_root
+            threading.Thread(target=self.save, args=(buffer, meta, root), daemon=True).start()
+        elif msg.data == "discard" and (self.buffer is not None or self.pending is not None):
+            buffer = self.buffer if self.buffer is not None else self.pending
+            self.get_logger().info(f"discarded episode with {len(buffer)} steps")
+            self.buffer = self.pending = None
+        else:
+            return
+        self.publish_status()  # at once, so the bridge maps the next A press to the new state
 
-    def episode_meta(self, buffer: EpisodeBuffer) -> dict:
+    def episode_meta(self, buffer: EpisodeBuffer, success: bool) -> dict:
         sim = buffer.stacked("sim_s")
         return {
             "robot_id": self.cfg["robot"]["id"],
             "task_name": self.rec["task_name"],
             "instruction": self.rec["instruction"],
             "collection": self.rec["collection"],
-            "teleop": "meta_quest_webxr",
-            "operator_marked_success": True,
+            "teleop": "meta_quest",
+            "quest_client": buffer.operator["client"],
+            "success": success,
             "rate_hz": self.rec["rate_hz"],
             "frames": len(buffer),
             "duration_sim_s": float(sim[-1] - sim[0]),
@@ -129,10 +152,10 @@ class RecorderNode(Node):
             "created_utc": datetime.fromtimestamp(self.started_wall, timezone.utc).isoformat(),
         }
 
-    def save(self, buffer: EpisodeBuffer, meta: dict):
+    def save(self, buffer: EpisodeBuffer, meta: dict, root: Path):
         try:
             with self.save_lock:  # one writer at a time, so episode indices never collide
-                path = write_episode(self.root, buffer, self.rec["instruction"], meta)
+                path = write_episode(root, buffer, self.rec["instruction"], meta)
             self.last_saved = str(path)
             self.get_logger().info(f"saved {path} ({len(buffer)} steps, {meta['dropped_steps']} dropped)")
         except Exception as exc:  # report to the operator instead of killing the node
@@ -203,18 +226,50 @@ class RecorderNode(Node):
             g = self.cfg["arms"][side]["gripper"]
             grippers.append((positions[g["joint"]] - g["closed_position"]) / (g["open_position"] - g["closed_position"]))
         step["gripper_measured"] = np.array(grippers)
+        step["operator"] = self.operator_step(now)
         step["sim_s"] = now
         step["wall_s"] = time.time()
         self.buffer.append(step)
 
+    def operator_step(self, now: float) -> dict:
+        """Operator streams at this step, NaN with a false *_valid flag where missing or stale."""
+        def fresh(msg) -> bool:
+            return msg is not None and now - stamp_s(msg.header) <= self.rec["max_staleness_s"]
+
+        op = self.operator if fresh(self.operator) else None
+        nan_pose = np.full(7, np.nan)
+        out = {"headset_s": op.headset_time if op else np.nan}
+        out["head_valid"] = bool(op and op.head_valid)
+        out["head_pose"] = pose_to_xyz_wxyz(op.head) if out["head_valid"] else nan_pose
+        controllers = [self.quest_poses.get(side) for side in SIDES]
+        out["controller_valid"] = np.array([fresh(c) for c in controllers])
+        for side, controller, ok in zip(SIDES, controllers, out["controller_valid"]):
+            out[f"{side}_controller_pose"] = pose_to_xyz_wxyz(controller.pose) if ok else nan_pose
+        out["eye_valid"] = bool(op and op.eyes_valid)
+        out["left_eye_pose"] = pose_to_xyz_wxyz(op.left_eye) if out["eye_valid"] else nan_pose
+        out["right_eye_pose"] = pose_to_xyz_wxyz(op.right_eye) if out["eye_valid"] else nan_pose
+        out["eye_confidence"] = (np.array([op.left_eye_confidence, op.right_eye_confidence])
+                                 if out["eye_valid"] else np.full(2, np.nan))
+        gaze = bool(op and op.gaze_valid and op.gaze_camera in self.cameras)
+        out["gaze_camera"] = self.cameras.index(op.gaze_camera) if gaze else -1
+        out["gaze_pixel"] = np.array(op.gaze_pixel, dtype=np.float64) if gaze else np.full(2, np.nan)
+        out["face_valid"] = bool(op and op.face_valid)
+        out["face_weights"] = np.asarray(op.face_weights, dtype=np.float32) if out["face_valid"] else None
+        if op is not None:
+            self.buffer.operator["client"] = op.client
+            if op.face_names:
+                self.buffer.operator["face_names"] = list(op.face_names)
+        return out
+
     def publish_status(self):
+        current = self.buffer if self.buffer is not None else self.pending
         status = {
-            "recording": self.buffer is not None,
-            "frames": len(self.buffer) if self.buffer is not None else 0,
+            "state": "recording" if self.buffer is not None else "labeling" if self.pending is not None else "idle",
+            "frames": len(current) if current is not None else 0,
             "dropped": self.dropped,
             "saving": self.saving > 0,
             "last_saved": self.last_saved,
-            "next_episode": next_episode_index(self.root),
+            "saved": {"success": next_episode_index(self.root), "failure": next_episode_index(self.failed_root)},
             "task": self.rec["task_name"],
             "instruction": self.rec["instruction"],
             "error": self.last_error,

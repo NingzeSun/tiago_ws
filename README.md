@@ -1,7 +1,9 @@
 # TIAGo Pro teleop data collection (ROS 2 Humble · Gazebo · Meta Quest)
 
-The Quest Browser streams both controllers to a ROS 2 bridge. Teleop drives the TIAGo Pro arms
-and grippers, and a recorder writes episodes in the RoboTwin HDF5 layout that DeSKAD reads.
+A Quest client streams the head and both controllers to a ROS 2 bridge: the Quest Browser page
+(any Quest), or a Unity app on the Quest Pro that adds eye gaze and face expressions. Teleop drives
+the TIAGo Pro arms and grippers, and a recorder writes episodes in the RoboTwin HDF5 layout that
+CoDex reads, with the operator streams and a success label.
 Sim and robot differ only in `config/sim.yaml` vs `config/real.yaml`. Design, status and the
 other scripts are in `PLAN.md` and `docs/`.
 
@@ -31,6 +33,10 @@ scripts/stop_sim.sh
 
 ## 2. Quest
 
+Both clients use the same bridge and token; the newest client takes control.
+
+### Quest Browser
+
 In a second terminal, and keep it running:
 
 ```bash
@@ -45,19 +51,50 @@ whenever cloudflared restarts. Do not share it.
 On the Mac, `http://localhost:8080/?token=…` shows the same cameras and buttons; VS Code
 forwards the port. The newest page takes control, so reload the Quest page last.
 
+### Unity app (Quest Pro: eye gaze and face)
+
+Build once in Unity 6 with Android Build Support:
+1. New project (Universal 3D). Add **Meta XR Core SDK** in the Package Manager, then run
+   **Meta > Tools > Project Setup Tool** and apply all fixes.
+2. Player Settings: Package Name `com.tiagodc.quest`, Internet Access **Require**.
+3. Replace Main Camera with **OVRCameraRig**. On its OVRManager: Tracking Origin Type **Floor Level**;
+   Quest Features: Face Tracking and Eye Tracking **Required**; Permission Requests On Startup: Face
+   Tracking and Eye Tracking.
+4. Copy `quest_unity/QuestTeleopClient.cs` into `Assets/` and add it to OVRCameraRig. Set its Panel
+   Material to a new material with the `Universal Render Pipeline/Unlit` shader.
+5. Build And Run with the headset plugged in, and allow eye and face tracking on first start.
+
+The app reads the bridge URL from a file. With the headset plugged into the bridge machine,
+`scripts/quest_connect.sh usb unity` writes it and starts the app (section 4). Through the tunnel,
+write the tunnel URL with adb wherever the headset is plugged in, then start the app from the
+headset's library:
+
+```bash
+adb shell "mkdir -p /sdcard/Android/data/com.tiagodc.quest/files && echo 'https://<hostname>/?token=<token>' > /sdcard/Android/data/com.tiagodc.quest/files/quest_url.txt"
+```
+
+Face the robot's forward direction and hold the Meta button to recenter. The app has no
+passthrough; `adb logcat -s Unity` shows its connection errors.
+
 ## 3. Recording
 
 | Quest | Action |
 |---|---|
 | Grip (hold) | engage that arm; the gripper follows your hand's motion. Release to re-position. |
 | Trigger | close that gripper |
-| Right A / B | start / stop and save |
-| Left X | discard |
+| Right A | start |
+| Right B | stop; then **A** = success or **X** = failure saves it |
+| Left stick click | discard |
 | Left Y | ready pose |
 | Right stick click | new object positions (sim only) |
 
-Face the robot's forward direction. Per episode: **Y** → **stick click** → **A** → task → **B**
-(**X** if it failed). Episodes go to `data/place_cube_can_tray/tiago_gazebo_teleop/`.
+Face the robot's forward direction. Per episode: **Y** → **right stick click** → **A** → task →
+**B** → **A** (success) or **X** (failure). Successes go to
+`data/place_cube_can_tray/tiago_gazebo_teleop/`, failures to `.../tiago_gazebo_teleop_failed/`,
+which CoDex does not read. Each HDF5 stores the label as the attribute `success` and the operator
+streams under `operator/`: head and controller poses, and with the Unity app, eye gaze (with the
+camera pixel looked at) and face expression weights. The layout is in
+`src/tiago_dc/tiago_dc/episode_writer.py`.
 
 Check an episode (writes a frame sheet and plots into `.../checks/`):
 
@@ -124,7 +161,7 @@ export TIAGO_DC_CONFIG=$TIAGO_WS/config/real_headonly.yaml
 
 Then read `config/real_headonly.yaml` wherever this section says `config/real.yaml`. Its episodes
 go to `.../tiago_real_teleop_headonly/` and are pipeline tests only: `check_episode.py` fails on
-them (KeyError on `left_camera`) because DeSKAD needs all three cameras.
+them (KeyError on `left_camera`) because CoDex needs all three cameras.
 
 `ros2 topic list` should show the robot's topics. Check the interface without moving:
 
@@ -150,7 +187,8 @@ cd ~/tiago_robot_day/tiago_ws && scripts/quest_connect.sh usb
 ```
 
 Accept "Allow USB debugging" in the headset. The page opens at `http://localhost:8080/?token=…`;
-the token is in `data/quest_url.txt`.
+the token is in `data/quest_url.txt`. For the Unity app, run `scripts/quest_connect.sh usb unity`
+instead.
 
 Without a cable, then run the tunnel and open the page as in section 2:
 
@@ -164,5 +202,5 @@ Without a cable, then run the tunnel and open the page as in section 2:
 2. First motion, with someone on the e-stop: set `teleop.enable_motion: true` in `config/real.yaml`
    and restart the launch (Ctrl-C, launch again). Check clearance, press **Y**, then make small,
    slow moves with one arm. Speed is capped at 0.10 m/s.
-3. Collect as in section 3. Episodes go to `data/place_cube_can_tray/tiago_real_teleop/`. Copy them
-   back to RUMI and run `scripts/check_episode.py`.
+3. Collect as in section 3. Episodes go to `data/place_cube_can_tray/tiago_real_teleop/` (failures
+   to `tiago_real_teleop_failed/`). Copy them back to RUMI and run `scripts/check_episode.py`.

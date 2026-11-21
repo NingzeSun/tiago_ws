@@ -5,7 +5,7 @@ Reads the object and tray poses from Gazebo and the arm's TCP from /teleop/<side
 then, like a Quest page would, holds that grip and moves the controller: the wrist turns to the
 object's yaw (cube only), the TCP comes in along the gripper's approach axis, the trigger closes,
 and the object is lifted, carried to the tray and released. Presses A
-before and B after, so the recorder saves a normal episode.
+before and B, A (success) after, so the recorder saves a normal episode.
 
     scripts/scripted_grasp_demo.py --side right --object can     (inside the container, sim running)
 """
@@ -134,9 +134,11 @@ async def run(args):
             await hold(0.6)
         for _ in range(10):
             await packet(squeeze=0.0)
-        for pressed in (True, False):
-            await packet(squeeze=0.0, press=("right", 5) if pressed else None)
-        await asyncio.sleep(2.0)
+        for button in (5, 4):  # B = stop, then A = success once the recorder awaits the label
+            for pressed in (True, False):
+                await packet(squeeze=0.0, press=("right", button) if pressed else None)
+            await asyncio.sleep(1.0)
+        await asyncio.sleep(1.0)
     print(f"{args.object} now at {np.round(model_pose(args.object)[:3], 3)} (tray {np.round(model_pose('tray')[:3], 3)})")
 
 

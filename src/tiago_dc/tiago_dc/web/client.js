@@ -1,7 +1,8 @@
 "use strict";
-// Streams both controllers' grip poses, triggers, grips and buttons to the ROS bridge every XR
-// frame, and shows the camera mosaic it sends back: as an <img> on the 2D page and as a panel
-// floating in front of the operator inside the XR session.
+// Streams the head pose and both controllers' grip poses, triggers, grips and buttons to the ROS
+// bridge every XR frame, and shows the camera mosaic it sends back: as an <img> on the 2D page and
+// as a panel floating in front of the operator inside the XR session. The Unity app
+// (quest_unity/QuestTeleopClient.cs) speaks the same protocol and adds eye gaze and face.
 
 const token = new URLSearchParams(location.search).get("token");
 const statusNode = document.getElementById("status");
@@ -12,15 +13,18 @@ let rttMs = null, transparent = false;
 
 function setStatus(text) { statusNode.textContent = text; }
 function send(obj) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); }
-for (const name of ["start", "save", "discard", "ready", "reset_scene"])
+for (const name of ["start", "stop", "success", "failure", "discard", "ready", "reset_scene"])
   byId(name).onclick = () => send({type: "event", name});
 
 function describe(s) {
-  const rec = s.recorder || {}, tel = s.teleop || {};
+  const rec = s.recorder || {}, tel = s.teleop || {}, saved = rec.saved || {};
   const eng = tel.engaged || {}, ik = tel.ik_error || {};
+  const state = {
+    recording: `RECORDING ${rec.frames} steps (${rec.dropped} dropped)`,
+    labeling: `STOPPED ${rec.frames} steps: A success, X failure, left stick click discard`,
+  }[rec.state] || "not recording";
   return [
-    `${rec.recording ? `RECORDING ${rec.frames} steps (${rec.dropped} dropped)` : "not recording"}` +
-      ` · next episode ${rec.next_episode ?? "?"}${rec.saving ? " · saving…" : ""}`,
+    `${state} · saved ${saved.success ?? "?"} success, ${saved.failure ?? "?"} failure${rec.saving ? " · saving…" : ""}`,
     `task: ${rec.instruction ?? "?"}`,
     `arms: left ${eng.left ? "ENGAGED" : "free"} (ik ${ik.left ?? "-"}) · right ${eng.right ? "ENGAGED" : "free"} (ik ${ik.right ?? "-"})` +
       `${tel.ready_motion ? " · moving to ready" : ""}${tel.motion_enabled === false ? " · MOTION DISABLED" : ""}`,
@@ -35,7 +39,7 @@ function connect() {
   const scheme = location.protocol === "https:" ? "wss:" : "ws:";
   ws = new WebSocket(`${scheme}//${location.host}/ws?token=${encodeURIComponent(token)}`);
   ws.binaryType = "blob";
-  ws.onopen = () => setStatus("connected; waiting for status…");
+  ws.onopen = () => { send({type: "hello", client: "webxr"}); setStatus("connected; waiting for status…"); };
   // A page that lost control to a newer client stays off; auto-reconnecting would take control
   // back and the two pages would kick each other every 2 s.
   let replaced = false;
@@ -111,7 +115,7 @@ function setupGL() {
 }
 
 // ---------------------------------------------------------------- XR input + rendering
-function sendInput(frame) {
+function sendInput(frame, viewer, time) {
   const hands = {left: null, right: null};
   for (const source of session.inputSources) {
     if (!source.gripSpace || !(source.handedness in hands)) continue;
@@ -126,14 +130,16 @@ function sendInput(frame) {
       buttons: Array.from(buttons, b => b.pressed),
     };
   }
-  send({type: "pose", hands, rtt_ms: rttMs});
+  const {position: p, orientation: o} = viewer.transform;
+  const head = {position: [p.x, p.y, p.z], orientation: [o.x, o.y, o.z, o.w]};
+  send({type: "pose", t: time / 1000, head, hands, rtt_ms: rttMs});
 }
 
-function xrFrame(_time, frame) {
+function xrFrame(time, frame) {
   session.requestAnimationFrame(xrFrame);
   const viewer = frame.getViewerPose(referenceSpace);
   if (!viewer) return;
-  sendInput(frame);
+  sendInput(frame, viewer, time);
   gl.bindFramebuffer(gl.FRAMEBUFFER, session.renderState.baseLayer.framebuffer);
   // Panel 1.6 m x 1.2 m (4:3 mosaic), 1.3 m in front of the start pose, centre 1.25 m high.
   const model = new Float32Array([0.8, 0, 0, 0,  0, 0.6, 0, 0,  0, 0, 1, 0,  0, 1.25, -1.3, 1]);

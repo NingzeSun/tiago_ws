@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Derive grasp contacts from gripper closure and write Bi-SKAD `contacts/episodeN.npz` files.
+"""Derive grasp contacts from gripper closure and write CoDex `contacts/episodeN.npz` files.
 
-Bi-SKAD's extract_contacts.py replays RoboTwin episodes in SAPIEN to read physical contacts;
+CoDex's extract_contacts.py replays RoboTwin episodes in SAPIEN to read physical contacts;
 Gazebo and real-robot episodes cannot be replayed that way. Here a contact is read from the
 gripper itself: the jaw was commanded closed further than the fingers actually are, and the
 fingers have stopped moving, so something is between them. An empty jaw reaches its command,
@@ -30,7 +30,7 @@ import numpy as np
 import yaml
 
 WORKSPACE = Path(__file__).resolve().parents[1]
-MAX_CLUSTERS = 4  # same padding as Bi-SKAD's extract_contacts.py
+MAX_CLUSTERS = 4  # same padding as CoDex's extract_contacts.py
 ACTOR_NAMES = ["grasped_object"]  # the object identity is not observable from the gripper
 
 
@@ -104,7 +104,7 @@ def episode_contacts(path: Path, grippers: dict, gap: float, stall: float) -> di
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("collection", type=Path, help="folder holding data/episodeN.hdf5 (Bi-SKAD --raw-root)")
+    parser.add_argument("collection", type=Path, help="folder holding data/episodeN.hdf5 (CoDex --raw-root)")
     parser.add_argument("--config", type=Path, default=WORKSPACE / "config" / "sim.yaml",
                         help="config the episodes were recorded with (jaw_opening per gripper)")
     parser.add_argument("--gap", type=float, default=0.08,

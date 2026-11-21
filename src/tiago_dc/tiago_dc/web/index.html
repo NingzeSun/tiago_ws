@@ -26,7 +26,9 @@
     <button id="enter-ar" disabled>Enter passthrough</button>
     <button id="enter-vr" disabled>Enter VR</button>
     <button id="start">Start recording</button>
-    <button id="save">Save episode</button>
+    <button id="stop">Stop</button>
+    <button id="success">Success</button>
+    <button id="failure">Failure</button>
     <button id="discard" class="warn">Discard episode</button>
     <button id="ready">Ready pose</button>
     <button id="reset_scene">Reset objects (sim)</button>
@@ -35,8 +37,9 @@
   <table>
     <tr><td>Grip (hold)</td><td>deadman + clutch for that arm; release, re-position your hand, grip again</td></tr>
     <tr><td>Trigger</td><td>close that gripper (released = open)</td></tr>
-    <tr><td>Right A / B</td><td>start recording / save episode</td></tr>
-    <tr><td>Left X / Y</td><td>discard episode / move arms to the ready pose</td></tr>
+    <tr><td>Right A / B</td><td>start recording / stop; after B, A marks the episode a success</td></tr>
+    <tr><td>Left X / Y</td><td>after B, mark the episode a failure / move arms to the ready pose</td></tr>
+    <tr><td>Left stick click</td><td>discard the episode</td></tr>
     <tr><td>Right stick click</td><td>re-randomize the objects (Gazebo only)</td></tr>
   </table>
 </main><script src="/client.js"></script></body>

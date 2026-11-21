@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Check a recorded episode with Bi-SKAD's own readers and write visual sanity plots.
+"""Check a recorded episode with CoDex's own readers and write visual sanity plots.
 
-Runs on the host (no ROS), in the Bi-SKAD environment:
+Runs on the host (no ROS), in the CoDex environment:
 
     /home/n7sun/miniconda3/envs/RoboTwin5090/bin/python scripts/check_episode.py \
         data/place_cube_can_tray/tiago_gazebo_teleop/data/episode0.hdf5
 
 It imports prepare_dataset.read_joint_vector / read_eef_abs, constants.eef_abs_to_r6 and
-raw_io.encoded_rgb_to_array from a Bi-SKAD task package (read-only), so "passes here" means
+raw_io.encoded_rgb_to_array from a CoDex task package (read-only), so "passes here" means
 "prepare_dataset.py can consume it". It also projects both TCPs into every camera with the
-stored intrinsic/extrinsic (Bi-SKAD's project_points_robotwin convention) and draws them, which
+stored intrinsic/extrinsic (CoDex's project_points_robotwin convention) and draws them, which
 catches wrong frames, wrong extrinsic direction, or swapped colour channels at a glance.
 """
 
@@ -27,14 +27,14 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-DEFAULT_TASK = Path("/home/n7sun/Research 2026/projects/Bi-SKAD/tasks/place_burger_fries")
+DEFAULT_TASK = Path("/home/n7sun/Research 2026/projects/CoDex/tasks/place_burger_fries")
 CAMERAS = ("head_camera", "left_camera", "right_camera")
 
 
-def load_biskad(task_dir: Path):
-    sys.dont_write_bytecode = True  # read-only use of the Bi-SKAD tree
+def load_codex(task_dir: Path):
+    sys.dont_write_bytecode = True  # read-only use of the CoDex tree
     sys.path.insert(0, str(task_dir))
-    from biskad_bread import constants, raw_io  # noqa: PLC0415
+    from codex_bread import constants, raw_io  # noqa: PLC0415
 
     spec = importlib.util.spec_from_file_location("prepare_dataset", task_dir / "scripts/pipeline/prepare_dataset.py")
     prepare = importlib.util.module_from_spec(spec)
@@ -52,10 +52,10 @@ def project(points_world, extrinsic, intrinsic):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("episode", type=Path)
-    parser.add_argument("--biskad-task", type=Path, default=DEFAULT_TASK)
+    parser.add_argument("--codex-task", type=Path, default=DEFAULT_TASK)
     parser.add_argument("--out", type=Path, default=None, help="plot directory (default: next to the episode)")
     args = parser.parse_args()
-    constants, raw_io, prepare = load_biskad(args.biskad_task)
+    constants, raw_io, prepare = load_codex(args.codex_task)
     out = args.out or args.episode.parent.parent / "checks"
     out.mkdir(parents=True, exist_ok=True)
     problems = []
@@ -72,6 +72,13 @@ def main():
         grip_cmd = np.stack([f["endpose/left_gripper"], f["endpose/right_gripper"]], axis=1)
         grip_meas = np.asarray(f["state/gripper_measured"])
         cmd_tcp = {s: np.asarray(f[f"action/{s}_tcp_command"])[:, :3] for s in ("left", "right")}
+        success = bool(f.attrs["success"]) if "success" in f.attrs else None
+        op = f.get("operator")
+        valid = None if op is None else {k: np.asarray(op[k]).mean(axis=0)
+                                         for k in ("head_valid", "controller_valid", "eye_valid", "face_valid")}
+        if op is not None:
+            valid.update(client=op.attrs["client"] or "?", faces=op["face_weights"].shape[1],
+                         gaze=(np.asarray(op["gaze_camera"]) >= 0).mean())
         frames = {}
         for cam in CAMERAS:
             rgb = f[f"observation/{cam}/rgb"]
@@ -91,6 +98,12 @@ def main():
         print(f"{name:5s} TCP   range x {np.ptp(tcp[:, 0]):.3f} y {np.ptp(tcp[:, 1]):.3f} z {np.ptp(tcp[:, 2]):.3f} m, "
               f"path {path:.3f} m, tracking |cmd - measured| mean {np.linalg.norm(cmd_tcp[name] - tcp, axis=1).mean() * 1000:.1f} mm")
     print(f"gripper     commanded [{grip_cmd.min():.2f}, {grip_cmd.max():.2f}]  measured [{grip_meas.min():.2f}, {grip_meas.max():.2f}]")
+    print(f"success     {'not labeled (older episode)' if success is None else success}")
+    if valid is not None:
+        c = valid["controller_valid"]
+        print(f"operator    {valid['client']}: valid head {valid['head_valid']:.0%}, controllers {c[0]:.0%} / {c[1]:.0%}, "
+              f"eyes {valid['eye_valid']:.0%}, face {valid['face_valid']:.0%} ({valid['faces']} weights), "
+              f"gaze on a camera {valid['gaze']:.0%}")
     for array, name in ((states, "states"), (eef_abs, "eef_abs"), (eef_r6, "eef_abs_r6")):
         if not np.all(np.isfinite(array)):
             problems.append(f"{name} has non-finite values")
@@ -137,7 +150,7 @@ def main():
     if problems:
         print("PROBLEMS:\n  " + "\n  ".join(problems))
         sys.exit(1)
-    print("OK: readable by Bi-SKAD prepare_dataset readers")
+    print("OK: readable by CoDex prepare_dataset readers")
 
 
 if __name__ == "__main__":

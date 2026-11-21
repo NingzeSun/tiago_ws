@@ -41,7 +41,7 @@ arms:
       # apart closed, 83 mm open). Places the per-finger points in extract_gripper_contacts.py.
       jaw_opening: [0.0, 0.055]
 
-# Keys are the RoboTwin observation names Bi-SKAD reads (head_camera, left_camera, right_camera).
+# Keys are the RoboTwin observation names CoDex reads (head_camera, left_camera, right_camera).
 cameras:
   head_camera:
     image_topic: /head_front_camera/color/image_raw
@@ -113,7 +113,7 @@ recorder:
   max_staleness_s: 0.1
   jpeg_quality: 90
   # Output: <data_root>/<task_name>/<collection>/{data,instructions,meta}/episode{N}.*
-  # (the RoboTwin layout Bi-SKAD's prepare_dataset.py reads with --raw-root <...>/<collection>).
+  # (the RoboTwin layout CoDex's prepare_dataset.py reads with --raw-root <...>/<collection>).
   data_root: /home/user/tiago_ws/data
   collection: tiago_gazebo_teleop
   task_name: place_cube_can_tray

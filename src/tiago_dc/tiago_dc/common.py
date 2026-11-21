@@ -10,11 +10,14 @@ import yaml
 from geometry_msgs.msg import Pose, Transform
 from sensor_msgs.msg import Image
 
-EVENT_TOPIC = "/teleop/event"          # std_msgs/String: start | save | discard | ready
+# std_msgs/String: start | stop | success | failure | discard | ready | reset_scene
+EVENT_TOPIC = "/teleop/event"
 COMMAND_TOPIC = "/teleop/command"      # sensor_msgs/JointState: commanded arm joints + grippers
 TELEOP_STATUS_TOPIC = "/teleop/status"  # std_msgs/String (JSON)
 RECORDER_STATUS_TOPIC = "/recorder/status"  # std_msgs/String (JSON)
 QUEST_JOY_TOPIC = "/quest/joy"         # sensor_msgs/Joy
+OPERATOR_TOPIC = "/quest/operator"     # tiago_dc_msgs/OperatorState: head, eyes, face
+QUEST_FRAME = "quest_local_floor"      # headset floor frame, WebXR axes (x right, y up, z toward the operator)
 SIDES = ("left", "right")
 
 
@@ -118,3 +121,9 @@ def matrix_to_xyz_wxyz(m: np.ndarray) -> np.ndarray:
     """RoboTwin endpose layout: [x, y, z, qw, qx, qy, qz]."""
     x, y, z, w = matrix_to_quat_xyzw(m[:3, :3])
     return np.array([*m[:3, 3], w, x, y, z], dtype=np.float64)
+
+
+def pose_to_xyz_wxyz(p: Pose) -> np.ndarray:
+    """A Pose in the RoboTwin endpose layout, without renormalizing."""
+    return np.array([p.position.x, p.position.y, p.position.z,
+                     p.orientation.w, p.orientation.x, p.orientation.y, p.orientation.z], dtype=np.float64)

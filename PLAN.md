@@ -2,19 +2,19 @@
 
 > Lives at `/home/n7sun/Research 2026/projects/tiago_ws/PLAN.md` on RUMI (L1). Day-to-day commands are in
 > `README.md`; what is verified is in `docs/status.md`. **Priority: everything stays compatible with
-> DeSKAD** (RoboTwin HDF5 layout, camera roles, `eef_abs_r6`); this plan is the reference, not a contract.
+> CoDex** (RoboTwin HDF5 layout, camera roles, `eef_abs_r6`); this plan is the reference, not a contract.
 
 ---
 
 ## 1. Context
 
 **Goal:** collect teleoperation demonstrations on a PAL TIAGo Pro using a Meta Quest, then train and deploy
-DeSKAD / diffusion policy / VLA models on the real robot. Before touching the real robot, the full pipeline
+CoDex / diffusion policy / VLA models on the real robot. Before touching the real robot, the full pipeline
 (Quest → teleop → recorder → dataset → policy rollout) must work in Gazebo with the same ROS 2 interfaces as the
 real robot.
 
 **About me:** new to ROS 2 and real robots. Explain each ROS 2 concept briefly the first time it is used. My
-earlier data came from RoboTwin (no ROS); the recorder writes that same RoboTwin HDF5 layout so the DeSKAD
+earlier data came from RoboTwin (no ROS); the recorder writes that same RoboTwin HDF5 layout so the CoDex
 training code stays the same.
 
 **Robot:** PAL TIAGo Pro (two 7-DoF SEA arms, PAL Pro grippers, torso lift, head, omni base), PAL OS 25.01
@@ -71,7 +71,7 @@ training code stays the same.
 | 1 Robot interface in sim | **done** | `config/sim.yaml`, `docs/interface_sim.md` (regenerate with `scripts/probe_interface.py`) |
 | 2 Teleop core | **done (Quest instead of keyboard)** | pinocchio DLS IK, clutch/deadman, workspace box, speed and joint limits |
 | 3 Quest bridge | **done in sim; needs the headset** | WebXR page in the Quest Browser (no APK, no ZMQ relay); tested end-to-end with `scripts/fake_quest_client.py` |
-| 4 Recorder | **done** | RoboTwin HDF5 layout, checked with DeSKAD's own readers and `prepare_dataset.py`; replay error 0.26° mean; contacts from gripper closure |
+| 4 Recorder | **done** | RoboTwin HDF5 layout, checked with CoDex's own readers and `prepare_dataset.py`; replay error 0.26° mean; contacts from gripper closure |
 | 5 Policy runtime in sim | not started | |
 | 6 Real robot | not started | `config/real.yaml` is an unverified draft |
 
@@ -140,8 +140,11 @@ Changed from the original plan: the Quest Browser itself runs a WebXR page (`tia
   `http://localhost` as secure, so no TLS. Needs Quest developer mode.
 - Path B: `cloudflared tunnel --url http://127.0.0.1:8080` (no USB/developer mode; data passes through Cloudflare).
 - Token-protected WebSocket (token in `data/.quest_token`, URL in `data/quest_url.txt`).
-- Publishes `/quest/{left,right}/pose`, `/quest/joy`, events on `/teleop/event`. Mapping: grip = deadman,
-  trigger = gripper, A = start, B = save, X = discard, Y = ready, right stick click = reset objects (sim).
+- Publishes `/quest/{left,right}/pose`, `/quest/joy`, `/quest/operator` (`tiago_dc_msgs/OperatorState`: head,
+  eye gaze, face), events on `/teleop/event`. Mapping: grip = deadman, trigger = gripper, A = start, B = stop,
+  then A = success or X = failure, left stick click = discard, Y = ready, right stick click = reset objects (sim).
+- Unity client for the Quest Pro (`quest_unity/QuestTeleopClient.cs`, Meta XR Core SDK): same protocol, plus
+  eye gaze, the gazed camera pixel and face expression weights, which WebXR does not expose.
 - The page shows a head + wrist camera mosaic with a REC/clutch status line, in passthrough or VR; round-trip
   latency is measured every second and logged by the bridge.
 - Same bridge on L2 on robot day: Quest by USB or Wi-Fi adb to L2 (`scripts/quest_connect.sh`, adb is in the image,
@@ -154,22 +157,23 @@ Changed from the original plan: the Quest Browser itself runs a WebXR page (`tia
 - `recorder_node`: 15 Hz on sim time; newest message per stream; drops a step if any stream is older than 100 ms.
 - Format: RoboTwin HDF5 (`observation/{head,left,right}_camera/{rgb,intrinsic_cv,extrinsic_cv,cam2world_gl}`,
   `joint_action/*`, `endpose/*`) + `instructions/episode{N}.json` + `meta/episode{N}.json` (robot id, rates, config
-  sha256, drops). Extras: `action/joint_command`, `action/*_tcp_command`, `state/*`, `timestamp/*`.
-- `scripts/check_episode.py` (DeSKAD readers + projected-TCP frame sheet + traces), `scripts/replay_episode.py`
-  (sim only). LeRobot/zarr converters not written (DeSKAD first).
-- Contacts for SKAE labels: `scripts/extract_gripper_contacts.py` writes DeSKAD `contacts/episodeN.npz` from
+  sha256, drops). Extras: `action/joint_command`, `action/*_tcp_command`, `state/*`, `timestamp/*`, `operator/*`
+  (never drops a step; NaN + `*_valid` flags) and the `success` attribute. Failures go to `<collection>_failed/`.
+- `scripts/check_episode.py` (CoDex readers + projected-TCP frame sheet + traces), `scripts/replay_episode.py`
+  (sim only). LeRobot/zarr converters not written (CoDex first).
+- Contacts for SKAE labels: `scripts/extract_gripper_contacts.py` writes CoDex `contacts/episodeN.npz` from
   gripper closure (commanded closed beyond the measured opening, fingers stalled = contact; TCP as contact point,
-  fingertip pads as the two clusters). Verified with DeSKAD's `load_episode_contacts` on a synthetic stall and
+  fingertip pads as the two clusters). Verified with CoDex's `load_episode_contacts` on a synthetic stall and
   with zero false contacts on empty-jaw closes. In this Gazebo model the fingers never stall (see Phase 0), so
   real positives come from the robot (PAL's grasper uses the same stall rule: `/gripper_*_grasper_srv/is_grasped`).
 - `scripts/scripted_grasp_demo.py`: headless grasp episode through the Quest protocol (test harness).
 
 ## 9. Phase 5 — Policy runtime in sim (next)
 
-- Separate policy environment (the DeSKAD conda env `RoboTwin5090` already has CUDA 12.8+ PyTorch for the 5090).
-- Policy server (no ROS): DeSKAD's serve path. Obs dict built by the **same code as the recorder**; JPEG images.
+- Separate policy environment (the CoDex conda env `RoboTwin5090` already has CUDA 12.8+ PyTorch for the 5090).
+- Policy server (no ROS): CoDex's serve path. Obs dict built by the **same code as the recorder**; JPEG images.
 - `policy_client_node` (ROS): builds obs, queries the server, executes chunks, requires the deadman.
-  DeSKAD runtime constraint: no runtime action overrides/gates beyond the teleop safety limits.
+  CoDex runtime constraint: no runtime action overrides/gates beyond the teleop safety limits.
 - Server location is a config option (same machine by default; ssh tunnel otherwise). DDS never crosses the campus network.
 
 ## 10. Phase 6 — Real robot on L2 (only after Phases 0–5 pass; every motion step needs my confirmation)
